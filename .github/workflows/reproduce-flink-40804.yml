@@ -1,0 +1,85 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This workflow is meant for as a basic CI run covering the most-important features
+# and default Java version. It is meant to run before a PullRequest is merged.
+
+name: "Reproduce FLINK-40804"
+
+on:
+  push:
+    branches:
+      - investigate-FLINK-40804
+    paths:
+      - .github/workflows/reproduce-flink-40804.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: "Java 17 full suite, attempt ${{ matrix.attempt }}"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3]
+    container:
+      image: apache/flink-ci-docker:java_8_11_17_21_25_maven_386_noble
+      options: --init
+    env:
+      PROFILE: "-Dflink.hadoop.version=2.10.2 -Djdk11 -Djdk17 -Pjava17-target"
+      DEBUG_FILES_OUTPUT_DIR: /tmp/flink-40804-logs
+      FLINK_LOG_DIR: /tmp/flink-40804-logs/flink-logs
+    steps:
+      - name: "Check out the failing Azure source revision"
+        uses: actions/checkout@v5
+        with:
+          ref: 429962c2ce5dd3cb9db34d68c0940d775f5c2c9b
+          persist-credentials: false
+
+      - name: "Select Java 17 and record the environment"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          mkdir -p "$DEBUG_FILES_OUTPUT_DIR" "$FLINK_LOG_DIR"
+          {
+            git rev-parse HEAD
+            "$JAVA_HOME_17_X64/bin/java" -version
+            lscpu
+            free -h
+          } > "$DEBUG_FILES_OUTPUT_DIR/environment.txt" 2>&1
+
+      - name: "Run Azure's Test - tests stage"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/ci/test_controller.sh tests 2>&1 | tee "$DEBUG_FILES_OUTPUT_DIR/controller.log"
+
+      - name: "Upload results from every attempt"
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: flink-40804-attempt-${{ matrix.attempt }}-${{ github.run_id }}
+          path: |
+            /tmp/flink-40804-logs/
+            flink-tests/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
