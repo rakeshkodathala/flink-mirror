@@ -60,6 +60,7 @@ jobs:
           echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
           mkdir -p "$DEBUG_FILES_OUTPUT_DIR" "$FLINK_LOG_DIR"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           {
             git rev-parse HEAD
             "$JAVA_HOME_17_X64/bin/java" -version
